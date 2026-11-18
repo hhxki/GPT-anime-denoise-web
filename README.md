@@ -1,6 +1,6 @@
-# Anime Denoise Web
+# GPT-anime-denoise-web
 
-[打开网页版](https://hhxki.github.io/anime-denoise-web/)
+[打开网页版](https://hhxki.github.io/GPT-anime-denoise-web/)
 
 在浏览器里用 WebGPU 为动漫图片去噪。图片在设备上处理，支持原图对比、局部保护和 PNG 导出。请使用支持 WebGPU 的浏览器。单张源文件上限为 1 GiB，与原 Python 项目一致。浏览器解码后的图片最多 1677 万像素。
 
@@ -8,7 +8,7 @@
 
 ## 本地运行
 
-从 [models-v1](https://github.com/hhxki/anime-denoise-web/releases/tag/models-v1) 下载 `esrgan.onnx` 到 `public/models/`，然后运行：
+从 [models-v1](https://github.com/hhxki/GPT-anime-denoise-web/releases/tag/models-v1) 下载 `esrgan.onnx` 到 `public/models/`，然后运行：
 
 ```sh
 npm ci
