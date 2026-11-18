@@ -1,0 +1,562 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anime Denoise</title>
+<link rel="icon" href="/favicon.ico">
+<script>
+  // apply the saved theme before first paint
+  try { const t = JSON.parse(localStorage.getItem("ad.theme")); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch {}
+</script>
+<style>
+  :root {
+    --font: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
+    --bg: #f3f1ec; --panel: #fbfaf7; --panel-2: #eeebe4; --line: #e2ded5; --line-2: #d2ccc1;
+    --text: #1d1b18; --text-2: #4a463f; --muted: #7c766c; --faint: #a7a196;
+    --primary: #22201c; --primary-2: #000000; --on-primary: #faf8f4; --sel-ring: rgba(29, 27, 24, .14);
+    --accent: #b9472f; --accent-2: #9c3a25; --accent-soft: #f5e7e2; --accent-ring: rgba(185, 71, 47, .22);
+    --stage: #e8e5de; --stage-dot: rgba(29, 27, 24, .05);
+    --ok: #3f7d52; --ok-soft: #e5f0e7; --err: #b9472f; --err-soft: #f5e7e2;
+    --shadow-1: 0 1px 2px rgba(29, 27, 24, .07);
+    --shadow-2: 0 10px 30px rgba(29, 27, 24, .13), 0 2px 6px rgba(29, 27, 24, .06);
+    --glass: rgba(251, 250, 247, .88);
+    --mask: 185, 71, 47;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #121110; --panel: #191816; --panel-2: #22211e; --line: #2c2a26; --line-2: #3a3732;
+      --text: #ece8e1; --text-2: #c9c3b9; --muted: #948d82; --faint: #625c54;
+      --primary: #ece8e1; --primary-2: #ffffff; --on-primary: #161513; --sel-ring: rgba(236, 232, 225, .16);
+      --accent: #e07a5f; --accent-2: #ea8f77; --accent-soft: rgba(224, 122, 95, .14); --accent-ring: rgba(224, 122, 95, .3);
+      --stage: #0c0b0a; --stage-dot: rgba(255, 255, 255, .04);
+      --ok: #6dbb84; --ok-soft: rgba(109, 187, 132, .13); --err: #ef8a73; --err-soft: rgba(239, 138, 115, .13);
+      --shadow-1: 0 1px 2px rgba(0, 0, 0, .4);
+      --shadow-2: 0 12px 34px rgba(0, 0, 0, .5), 0 2px 6px rgba(0, 0, 0, .3);
+      --glass: rgba(27, 26, 23, .88);
+      --mask: 224, 122, 95;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #121110; --panel: #191816; --panel-2: #22211e; --line: #2c2a26; --line-2: #3a3732;
+    --text: #ece8e1; --text-2: #c9c3b9; --muted: #948d82; --faint: #625c54;
+    --primary: #ece8e1; --primary-2: #ffffff; --on-primary: #161513; --sel-ring: rgba(236, 232, 225, .16);
+    --accent: #e07a5f; --accent-2: #ea8f77; --accent-soft: rgba(224, 122, 95, .14); --accent-ring: rgba(224, 122, 95, .3);
+    --stage: #0c0b0a; --stage-dot: rgba(255, 255, 255, .04);
+    --ok: #6dbb84; --ok-soft: rgba(109, 187, 132, .13); --err: #ef8a73; --err-soft: rgba(239, 138, 115, .13);
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, .4);
+    --shadow-2: 0 12px 34px rgba(0, 0, 0, .5), 0 2px 6px rgba(0, 0, 0, .3);
+    --glass: rgba(27, 26, 23, .88);
+    --mask: 224, 122, 95;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 14px/1.5 var(--font); -webkit-font-smoothing: antialiased; }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+  button:disabled { cursor: default; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .num { font-variant-numeric: tabular-nums; }
+  svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  kbd { font: 11px/1 var(--font); padding: 3px 5px; border-radius: 5px; border: 1px solid var(--line-2); border-bottom-width: 2px; color: var(--muted); background: var(--panel); }
+
+  .app { display: grid; grid-template-columns: 312px 1fr; grid-template-rows: 52px 1fr; height: 100vh; }
+
+  /* ---------- top bar ---------- */
+  .top { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding: 0 14px 0 18px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  .mark { width: 28px; height: 28px; border-radius: 7px; background: var(--accent); display: grid; place-items: center; }
+  .brand { display: flex; align-items: baseline; min-width: 0; }
+  .brand b { font-size: 15px; font-weight: 650; letter-spacing: .1px; flex: none; }
+  /* the tagline gives way to the buttons on the right: cut with an ellipsis, full text in the tooltip */
+  .brand span { color: var(--muted); font-size: 12.5px; margin-left: 10px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .top-actions { margin-left: auto; display: flex; gap: 2px; flex: none; }
+  .tbtn { display: flex; align-items: center; gap: 7px; height: 34px; padding: 0 11px; border-radius: 8px; color: var(--text-2); font-size: 13px; }
+  .tbtn:hover { background: var(--panel-2); color: var(--text); }
+
+  /* ---------- left panel ---------- */
+  .panel { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  .panel-scroll { flex: 1; overflow-y: auto; padding: 18px 18px 8px; }
+  .sec { padding: 0 0 20px; margin-bottom: 18px; border-bottom: 1px solid var(--line); }
+  .sec:last-child { border-bottom: 0; margin-bottom: 0; }
+  .sec-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .sec-head h2 { margin: 0; font-size: 13px; font-weight: 650; color: var(--text); display: flex; align-items: center; gap: 7px; }
+  .sec-head h2 svg { color: var(--muted); }
+  .pill { font-size: 11.5px; line-height: 20px; padding: 0 8px; border-radius: 999px; background: var(--panel-2); color: var(--muted); white-space: nowrap; }
+  .pill.accent { background: var(--accent-soft); color: var(--accent); }
+  .pill.ok { background: var(--ok-soft); color: var(--ok); }
+  .hint { margin: 10px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+
+  .file { display: flex; gap: 12px; align-items: center; }
+  .file .thumb { width: 52px; height: 52px; border-radius: 10px; object-fit: cover; background: var(--panel-2); border: 1px solid var(--line); flex: none; }
+  .file .thumb.blank { display: grid; place-items: center; color: var(--faint); }
+  .file .meta { min-width: 0; flex: 1; }
+  .file .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .file .dims { color: var(--muted); font-size: 12.5px; }
+  .status { display: flex; align-items: center; gap: 7px; margin-top: 12px; font-size: 12.5px; color: var(--text-2); }
+  .status .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); flex: none; }
+  .status.ok .dot { background: var(--ok); }
+  .status.run .dot { background: var(--accent); animation: pulse 1s ease-in-out infinite; }
+  .status.err { color: var(--err); } .status.err .dot { background: var(--err); }
+  @keyframes pulse { 50% { opacity: .3; } }
+
+  .presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .preset { border: 1px solid var(--line); border-radius: 10px; padding: 9px 6px 8px; text-align: center; background: var(--panel); transition: border-color .12s, background .12s; }
+  .preset b { display: block; font-size: 13.5px; font-weight: 600; }
+  .preset small { display: block; font-size: 11px; color: var(--faint); margin-top: 1px; }
+  .preset:hover:not(:disabled) { border-color: var(--line-2); background: var(--panel-2); }
+  .preset[aria-checked="true"] { border-color: var(--primary); background: var(--primary); }
+  .preset[aria-checked="true"] b { color: var(--on-primary); }
+  .preset[aria-checked="true"] small { color: var(--on-primary); opacity: .62; }
+
+  .tune { margin-top: 16px; padding: 14px 14px 12px; border-radius: 12px; background: var(--panel-2); }
+  .tune-head { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--muted); letter-spacing: .3px; }
+  .tune-body { padding-top: 10px; }
+  .field + .field { margin-top: 16px; }
+  .field-top { display: flex; justify-content: space-between; font-size: 13px; color: var(--text-2); }
+  .field-top output { color: var(--text); font-weight: 600; }
+  .ends { display: flex; justify-content: space-between; color: var(--faint); font-size: 11.5px; margin-top: 2px; }
+  .linkbtn { color: var(--accent); font-size: 12.5px; }
+  .linkbtn:hover { text-decoration: underline; }
+
+  input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 18px; margin: 4px 0 0; background: transparent; cursor: pointer; --p: 50%; }
+  input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(var(--primary), var(--primary)) 0 / var(--p) 100% no-repeat, var(--line-2); }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -6px; border-radius: 50%; background: var(--panel); border: 2px solid var(--primary); box-shadow: var(--shadow-1); }
+  input[type=range]::-moz-range-track { height: 4px; border-radius: 2px; background: var(--line-2); }
+  input[type=range]::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--primary); }
+  input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--panel); border: 2px solid var(--primary); }
+  input[type=range]:disabled { opacity: .45; cursor: default; }
+
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 40px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--panel); font-weight: 600; font-size: 13.5px; color: var(--text); transition: background .12s, border-color .12s; }
+  .btn:hover:not(:disabled) { background: var(--panel-2); }
+  .btn.wide { width: 100%; }
+  .btn.primary { background: var(--primary); border-color: transparent; color: var(--on-primary); box-shadow: var(--shadow-1); }
+  .btn.primary:hover:not(:disabled) { background: var(--primary-2); }
+  .btn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .btn:disabled { background: var(--panel-2); border-color: var(--line); color: var(--faint); box-shadow: none; }
+  .btn.icon { width: 40px; padding: 0; }
+  .btn kbd { margin-left: 2px; }
+  .protect-sum { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12.5px; color: var(--text-2); }
+  .protect-sum .dot { width: 7px; height: 7px; border-radius: 50%; background: rgb(var(--mask)); }
+  .protect-sum .linkbtn { margin-left: auto; }
+
+  .panel-foot { border-top: 1px solid var(--line); padding: 14px 18px 16px; }
+  .foot-row { display: flex; gap: 8px; }
+  .foot-row .primary { flex: 1; height: 44px; font-size: 14px; }
+  .foot-row .icon { height: 44px; width: 44px; }
+  .foot-note { margin-top: 9px; font-size: 12px; color: var(--muted); text-align: center; min-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .foot-note .flink { color: var(--accent); cursor: pointer; }
+  .foot-note .flink:hover { text-decoration: underline; }
+
+  /* ---------- work area ---------- */
+  .work { display: grid; grid-template-rows: auto 1fr auto; min-width: 0; min-height: 0; padding: 0 14px; }
+  .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 0; }
+  .seg { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--line); }
+  .seg button { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border-radius: 7px; font-size: 13px; color: var(--muted); white-space: nowrap; }
+  .seg button:hover:not(:disabled) { color: var(--text); }
+  .seg button.on { background: var(--panel); color: var(--text); box-shadow: var(--shadow-1); font-weight: 600; }
+  .seg button:disabled { opacity: .45; }
+  .seg button kbd { font-size: 10px; padding: 2px 4px; }
+  .seg .lbl { display: flex; align-items: center; padding: 0 6px 0 9px; font-size: 12px; color: var(--faint); }
+  .tb-hint { color: var(--faint); font-size: 12.5px; white-space: nowrap; }
+  .zoom { margin-left: auto; display: flex; align-items: center; gap: 2px; }
+  .zoom button { height: 30px; min-width: 30px; padding: 0 8px; border-radius: 8px; color: var(--text-2); font-size: 13px; display: grid; place-items: center; white-space: nowrap; }
+  .zoom button:hover { background: var(--panel-2); color: var(--text); }
+  .zoom .pct { width: 52px; text-align: center; color: var(--muted); font-size: 12.5px; }
+
+  .stage { position: relative; min-height: 0; border-radius: 14px; overflow: hidden; background-color: var(--stage); border: 1px solid var(--line);
+    background-image: radial-gradient(var(--stage-dot) 1px, transparent 1.2px); background-size: 18px 18px; user-select: none; touch-action: none; }
+  .stage.has { cursor: grab; }
+  .stage.paint { cursor: none; }
+  .stage.lasso { cursor: crosshair; }
+  .lasso-svg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 6; pointer-events: none; overflow: visible; }
+  .lasso-svg path { fill: none; stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
+  .lasso-svg .ant-b { stroke: rgba(0, 0, 0, .8); }
+  .lasso-svg .ant-w { stroke: #fff; stroke-dasharray: 5 4; animation: ants .5s linear infinite; }
+  .lasso-svg .anc { fill: #fff; stroke: rgba(0, 0, 0, .8); stroke-width: 1; }
+  .lasso-svg circle { fill: #fff; stroke: rgba(0, 0, 0, .8); stroke-width: 1.2; }
+  .lasso-svg circle.near { fill: rgb(var(--mask)); stroke: #fff; stroke-width: 2; }
+  @keyframes ants { to { stroke-dashoffset: -9; } }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; }
+  .row2 .btn { padding: 0 8px; gap: 6px; white-space: nowrap; min-width: 0; }
+  .fb-field.off { opacity: .4; pointer-events: none; }
+  .stage.space { cursor: grab !important; }
+  .stage.panning { cursor: grabbing !important; }
+  .stage.sizing { cursor: none !important; }
+  /* the floating toolbar is UI, not canvas: normal cursors even while painting / panning */
+  .floatbar { cursor: default !important; }
+  .floatbar button, .floatbar label, .floatbar input { cursor: pointer !important; }
+  .frame { position: absolute; pointer-events: none; box-shadow: 0 0 0 1px rgba(0, 0, 0, .06), 0 14px 40px rgba(0, 0, 0, .16);
+    background: #fff; background-image: linear-gradient(45deg, #e3e3e8 25%, transparent 25%, transparent 75%, #e3e3e8 75%), linear-gradient(45deg, #e3e3e8 25%, transparent 25%, transparent 75%, #e3e3e8 75%);
+    background-size: 16px 16px; background-position: 0 0, 8px 8px; }
+  .layer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+  .layer img, .layer canvas { position: absolute; left: 0; top: 0; transform-origin: 0 0; max-width: none; }
+  .layer .px { image-rendering: pixelated; }
+  #Lm { opacity: 0; transition: opacity .35s ease; }
+  #Lm.show { opacity: 1; transition: opacity .06s; }
+  .tag { position: absolute; top: 12px; z-index: 3; padding: 4px 10px; border-radius: 7px; font-size: 12px; color: #fff; background: rgba(22, 20, 18, .6); backdrop-filter: blur(6px); pointer-events: none; }
+  .tag.l { left: 12px; } .tag.r { right: 12px; }
+  .stage.brushing .tag { top: 72px; }
+  .divider { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: rgba(255, 255, 255, .95); box-shadow: 0 0 0 1px rgba(0, 0, 0, .12); z-index: 2; cursor: ew-resize; }
+  .knob { position: absolute; top: 50%; left: 50%; width: 36px; height: 36px; margin: -18px 0 0 -18px; border-radius: 50%; background: #fff; box-shadow: 0 2px 10px rgba(0, 0, 0, .25); display: grid; place-items: center; color: #33333b; }
+  .knob svg { width: 18px; height: 18px; }
+  .brush { position: absolute; z-index: 6; border-radius: 50%; border: 1.5px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, .45), inset 0 0 0 1px rgba(0, 0, 0, .25); pointer-events: none; transform: translate(-50%, -50%); }
+  .brush.erase { border-style: dashed; }
+  .size-tip { position: absolute; z-index: 9; transform: translate(-50%, -100%); padding: 3px 8px; border-radius: 6px; font-size: 12px; color: #fff; background: rgba(22, 20, 18, .78); pointer-events: none; white-space: nowrap; }
+
+  /* anchored on the left: the tools' own settings change the bar's width, the tool buttons must not move */
+  .floatbar { position: absolute; top: 12px; left: 12px; z-index: 7; display: flex; align-items: center; gap: 4px; padding: 6px; border-radius: 14px;
+    background: var(--glass); backdrop-filter: blur(14px); border: 1px solid var(--line); box-shadow: var(--shadow-2); white-space: nowrap;
+    width: max-content; max-width: calc(100% - 24px); flex-wrap: wrap; justify-content: flex-start; }
+  .fb-group { display: contents; }
+  .fb-group[hidden] { display: none !important; }
+  .swatch { position: relative; width: 26px; height: 22px; border-radius: 6px; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .25), 0 0 0 1px var(--line-2); overflow: hidden; }
+  .swatch input { position: absolute; inset: -6px; width: calc(100% + 12px); height: calc(100% + 12px); border: 0; padding: 0; opacity: 0; cursor: pointer; }
+  .ib.txt { width: auto; padding: 0 9px; font-size: 12.5px; }
+  #fbPaint .fb-field { gap: 6px; padding: 0 4px; }
+  #fbPaint .fb-field input[type=range] { width: 62px; }
+  #fbPaint .fb-field output { width: 34px; }
+  .brush.pc::after { content: ""; position: absolute; left: 50%; top: 50%; width: 3px; height: 3px; margin: -1.5px 0 0 -1.5px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, .55); }
+  .stage.picking, .stage.picking * { cursor: crosshair !important; }
+  /* eyedropper ring, like PS: top half = colour under the cursor, bottom half = current colour */
+  .loupe { position: absolute; z-index: 9; width: 76px; height: 76px; margin: -38px 0 0 -38px; border-radius: 50%; pointer-events: none;
+    background: linear-gradient(var(--new, #000) 50%, var(--cur, #000) 50%);
+    -webkit-mask: radial-gradient(circle, transparent 23px, #000 24px); mask: radial-gradient(circle, transparent 23px, #000 24px);
+    filter: drop-shadow(0 0 1px rgba(0, 0, 0, .7)) drop-shadow(0 0 1px rgba(255, 255, 255, .9)); }
+  .floatbar .sep { width: 1px; height: 24px; background: var(--line-2); margin: 0 6px; }
+  .floatbar .seg { background: var(--panel-2); }
+  .fb-field { display: flex; align-items: center; gap: 8px; padding: 0 6px; font-size: 12.5px; color: var(--text-2); }
+  .fb-field input { width: 84px; margin: 0; }
+  .fb-field output { width: 38px; color: var(--text); font-weight: 600; text-align: right; }
+  .ib { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; color: var(--text-2); }
+  .ib:hover:not(:disabled) { background: var(--panel-2); color: var(--text); }
+  .ib:disabled { opacity: .35; }
+  .ib.on { color: var(--text); background: var(--panel-2); }
+  .saved { font-size: 12px; color: var(--faint); padding: 0 6px; min-width: 52px; text-align: center; }
+  .done-btn { height: 32px; padding: 0 14px; border-radius: 9px; background: var(--primary); color: var(--on-primary); font-weight: 600; font-size: 13px; }
+  .tip { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 24px); overflow: hidden; text-overflow: ellipsis; z-index: 5; padding: 6px 12px; border-radius: 9px; font-size: 12px; color: #fff; background: rgba(22, 20, 18, .64); backdrop-filter: blur(6px); white-space: nowrap; pointer-events: none; }
+
+  .progress { position: absolute; inset: 0 0 auto 0; z-index: 8; pointer-events: none; }
+  .progress .bar { height: 2px; background: linear-gradient(90deg, transparent, var(--accent), transparent); background-size: 40% 100%; background-repeat: no-repeat; animation: slide 1.1s linear infinite; }
+  @keyframes slide { from { background-position: -40% 0; } to { background-position: 140% 0; } }
+  .pcard { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); width: max-content; display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-radius: 12px; background: var(--glass); backdrop-filter: blur(14px); border: 1px solid var(--line); box-shadow: var(--shadow-2); font-size: 13px; white-space: nowrap; }
+  .floatbar:not([hidden]) ~ .progress .pcard { top: 70px; }
+  .pcard .t { color: var(--muted); }
+  .spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--accent-ring); border-top-color: var(--accent); animation: r .8s linear infinite; flex: none; }
+  @keyframes r { to { transform: rotate(360deg); } }
+
+  .empty { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; }
+  .chip-dev { display: flex; align-items: center; gap: 7px; height: 26px; padding: 0 10px; margin-right: 6px; border-radius: 999px; background: var(--panel-2); color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .chip-dev i { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+  .empty-card { text-align: center; max-width: 470px; padding: 40px 36px 34px; border-radius: 18px; border: 1.5px dashed var(--line-2); background: color-mix(in srgb, var(--panel) 70%, transparent); }
+  .empty-icon { width: 56px; height: 56px; margin: 0 auto 16px; border-radius: 16px; display: grid; place-items: center; background: var(--panel-2); color: var(--text-2); }
+  .empty-icon svg { width: 26px; height: 26px; }
+  .empty h3 { margin: 0 0 6px; font-size: 18px; font-weight: 650; }
+  .empty p { margin: 0 0 20px; color: var(--muted); font-size: 13px; }
+  .empty small { display: block; margin-top: 16px; color: var(--faint); font-size: 12px; }
+
+  .strip { display: flex; align-items: center; gap: 10px; padding: 10px 0 12px; min-height: 86px; overflow-x: auto; }
+  .sitem, .sadd { position: relative; flex: none; width: 62px; height: 62px; border-radius: 11px; }
+  .sadd { border: 1.5px dashed var(--line-2); color: var(--muted); display: grid; place-items: center; }
+  .sadd:hover { border-color: var(--primary); color: var(--text); }
+  .sitem img { width: 100%; height: 100%; object-fit: cover; border-radius: 11px; border: 1px solid var(--line); display: block; background: var(--panel-2); }
+  .sitem.cur img { border: 2px solid var(--primary); box-shadow: 0 0 0 3px var(--sel-ring); }
+  .sbadge { position: absolute; right: -4px; bottom: -4px; min-width: 20px; height: 20px; border-radius: 10px; display: grid; place-items: center; font-size: 11px; font-weight: 700; padding: 0 5px; border: 2px solid var(--bg); }
+  .sbadge.ok { background: var(--ok); color: #fff; }
+  .sbadge.err { background: var(--err); color: #fff; }
+  .sbadge.wait { background: var(--panel-2); color: var(--muted); }
+  .sbadge.run { background: var(--panel); padding: 0; } .sbadge.run .spin { width: 12px; height: 12px; border-width: 2px; }
+  .sbadge.mask { left: -4px; right: auto; background: rgb(var(--mask)); color: #fff; }
+  .sdel { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%; background: var(--primary); color: var(--on-primary); display: none; place-items: center; font-size: 12px; line-height: 1; }
+  .sitem:hover .sdel { display: grid; }
+  .strip-note { color: var(--faint); font-size: 12px; margin-left: 4px; white-space: nowrap; }
+
+  /* ---------- overlays ---------- */
+  .drop { position: fixed; inset: 0; z-index: 50; background: color-mix(in srgb, var(--bg) 72%, transparent); backdrop-filter: blur(4px); display: grid; place-items: center; pointer-events: none; }
+  .drop div { padding: 34px 48px; border-radius: 20px; border: 2px dashed var(--primary); background: var(--panel); font-size: 16px; font-weight: 600; color: var(--text); box-shadow: var(--shadow-2); }
+  .toasts { position: fixed; left: 50%; bottom: 104px; transform: translateX(-50%); z-index: 60; display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; }
+  .toast { pointer-events: auto; display: flex; align-items: center; gap: 12px; max-width: 560px; padding: 10px 12px 10px 16px; border-radius: 12px; background: #22201c; color: #f6f3ee; font-size: 13px; box-shadow: var(--shadow-2); animation: up .18s ease-out; }
+  .toast.err { background: var(--err); color: #fff; }
+  .toast button { color: inherit; opacity: .7; font-size: 15px; width: 22px; height: 22px; }
+  @keyframes up { from { opacity: 0; transform: translateY(8px); } }
+  dialog { border: 1px solid var(--line); border-radius: 18px; padding: 0; background: var(--panel); color: var(--text); box-shadow: var(--shadow-2); max-width: min(760px, calc(100vw - 32px)); }
+  #helpDlg { width: min(760px, calc(100vw - 32px)); }
+  dialog::backdrop { background: rgba(10, 10, 14, .42); backdrop-filter: blur(3px); }
+  .dlg { padding: 24px 26px 22px; }
+  .dlg h3 { margin: 0 0 16px; font-size: 17px; }
+  .dlg h4 { margin: 22px 0 10px; font-size: 13px; color: var(--muted); font-weight: 600; }
+  .formula { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr; align-items: stretch; gap: 8px; }
+  .formula .op { display: grid; place-items: center; color: var(--faint); font-size: 18px; }
+  .fcard { border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: var(--panel-2); font-size: 12.5px; color: var(--muted); line-height: 1.55; }
+  .fcard b { display: block; color: var(--text); font-size: 13.5px; margin-bottom: 4px; }
+  .fcard.last { border-color: var(--primary); background: var(--panel); }
+  .fcard.last b { color: var(--accent); }
+  .keys { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 28px; font-size: 13px; }
+  .keys div { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 3px 0; color: var(--text-2); }
+  .keys span:last-child { display: flex; gap: 4px; flex: none; }
+  .dlg-foot { display: flex; align-items: center; gap: 10px; margin-top: 22px; }
+  .dlg-foot .note { color: var(--faint); font-size: 12px; margin-right: auto; }
+  .dlg-foot a { color: var(--accent); }
+  .ended { position: fixed; inset: 0; z-index: 99; display: grid; place-items: center; background: var(--bg); color: var(--muted); font-size: 15px; }
+
+  @media (max-width: 900px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: 52px auto minmax(420px, 1fr); }
+    .panel { border-right: 0; border-bottom: 1px solid var(--line); }
+    .brand span, .tbtn span { display: none; }
+    .tb-hint { display: none; }
+  }
+</style>
+<style>#openOut,#revealBtn{display:none!important}</style></head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <!-- mask is an opaque grey image (brightness = restore strength); this turns grey into alpha for blending -->
+  <filter id="sqrtA" color-interpolation-filters="sRGB"><feComponentTransfer><feFuncA type="gamma" amplitude="1" exponent="0.5" offset="0"/></feComponentTransfer></filter>
+  <filter id="g2a" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  1 0 0 0 0"/></filter>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 2.5c.7 4.9 2.7 7.4 7.9 8.5-5.2 1.1-7.2 3.6-7.9 8.5-.7-4.9-2.7-7.4-7.9-8.5 5.2-1.1 7.2-3.6 7.9-8.5z"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="9.5" r="1.6"/><path d="m4 17 5-5 4 4 3-3 4 4"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></symbol>
+  <symbol id="i-auto" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></symbol>
+  <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.5v.4M12 17h.01"/></symbol>
+  <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3v8M6.3 6.6a8 8 0 1 0 11.4 0"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.5 3 8.2 7 10 4-1.8 7-5.5 7-10V6z"/></symbol>
+  <symbol id="i-brush" viewBox="0 0 24 24"><path d="M14.5 4.5 19.5 9.5 11 18a3 3 0 0 1-2.1.9H5v-3.9A3 3 0 0 1 5.9 13z"/><path d="m13 6 5 5"/></symbol>
+  <symbol id="i-eraser" viewBox="0 0 24 24"><path d="m7 21-4-4 10-10 8 8-6 6z"/><path d="M7 21h13M9 11l6 6"/></symbol>
+  <symbol id="i-pen" viewBox="0 0 24 24"><path d="M12 19.5c-2.5 0-3.5-1.6-3.5-3.5 0-1.5 1-2.5 2-3.5L18.6 4.4a1.4 1.4 0 0 1 2 2L12.5 14.5c-1 1-2 2-3.5 2"/><path d="M8.5 16c-1.5 0-3.5 1-4.5 3.5 2.5 1 6 1 8-0.5"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></symbol>
+  <symbol id="i-redo" viewBox="0 0 24 24"><path d="m15 14 5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/></symbol>
+  <symbol id="i-eye-auto" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7c2.1 0 3.9.7 5.4 1.7M22 12s-3.5 7-10 7c-2.1 0-3.9-.7-5.4-1.7"/><circle cx="12" cy="12" r="3"/><path d="M19 3v4h-4M5 21v-4h4"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="i-lr" viewBox="0 0 24 24"><path d="m9 7-5 5 5 5M15 7l5 5-5 5"/></symbol>
+  <symbol id="i-lasso" viewBox="0 0 24 24"><path d="M6.6 14.2C4.4 13.1 3 11.4 3 9.5 3 6 7 3.5 12 3.5s9 2.5 9 6-4 6-9 6c-1.1 0-2.2-.1-3.2-.4"/><circle cx="7.6" cy="15.6" r="1.6"/><path d="M7.4 17.2c.2 1.6 1.4 2.6 3.1 3.1"/></symbol>
+  <symbol id="i-invert" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="3"/><path d="M12 3.5h5.5a3 3 0 0 1 3 3v11a3 3 0 0 1-3 3H12z" fill="currentColor"/></symbol>
+</svg>
+
+<div class="app">
+  <header class="top">
+    <div class="mark"><svg width="16" height="16" fill="#fff"><use href="#i-spark"/></svg></div>
+    <div class="brand"><b>Anime Denoise</b><span title="去除 GPT 风味噪点（包括但不限于鱼鳞状纹理、碎片化细节、碎片化阴影）">去除 GPT 风味噪点（包括但不限于鱼鳞状纹理、碎片化细节、碎片化阴影）</span></div>
+    <div class="top-actions">
+      <span class="chip-dev" id="devChip" title="图片只在这台电脑上处理" hidden><i></i><span id="devName">本机处理</span></span>
+      <button class="tbtn" id="openOut" title="打开输出文件夹"><svg class="i"><use href="#i-folder"/></svg><span>输出文件夹</span></button>
+      <button class="tbtn" id="themeBtn" title="切换外观"><svg class="i"><use id="themeIcon" href="#i-auto"/></svg><span id="themeLabel">跟随系统</span></button>
+      <button class="tbtn" id="helpBtn" title="说明与快捷键（?）"><svg class="i"><use href="#i-help"/></svg><span>说明</span></button>
+      <button class="tbtn" id="quitBtn" title="结束工具"><svg class="i"><use href="#i-power"/></svg><span>结束</span></button>
+    </div>
+  </header>
+
+  <aside class="panel">
+    <div class="panel-scroll">
+      <section class="sec">
+        <div class="file">
+          <div class="thumb blank" id="fThumbBlank"><svg class="i"><use href="#i-image"/></svg></div>
+          <img class="thumb" id="fThumb" alt="" hidden>
+          <div class="meta">
+            <div class="name" id="fName">还没有图片</div>
+            <div class="dims num" id="fDims">拖进窗口，或按 Ctrl+O 选择</div>
+          </div>
+        </div>
+        <div class="status" id="fStatus" hidden><span class="dot"></span><span id="fStatusText"></span></div>
+      </section>
+
+      <section class="sec">
+        <div class="sec-head"><h2><svg class="i"><use href="#i-spark"/></svg>去噪强度</h2><span class="pill" id="paramPill">推荐</span></div>
+        <div class="presets" role="radiogroup" aria-label="去噪强度">
+          <button class="preset" role="radio" data-preset="gentle"><b>轻柔</b><small class="num">80% · 0.0006</small></button>
+          <button class="preset" role="radio" data-preset="recommended"><b>推荐</b><small class="num">60% · 0.001</small></button>
+          <button class="preset" role="radio" data-preset="strong"><b>强力</b><small class="num">45% · 0.0018</small></button>
+        </div>
+        <p class="hint" id="presetHint"></p>
+        <div class="tune" id="tune">
+          <div class="tune-head"><span>微调参数</span><button class="linkbtn" id="resetParams">恢复推荐</button></div>
+          <div class="tune-body">
+            <div class="field">
+              <div class="field-top"><span>预缩比例</span><output class="num" id="downOut"></output></div>
+              <input type="range" id="down" min="10" max="100" step="5">
+              <div class="ends"><span>去噪更强</span><span>细节更多</span></div>
+            </div>
+            <div class="field">
+              <div class="field-top"><span>L0 平滑</span><output class="num" id="l0Out"></output></div>
+              <input type="range" id="l0" min="0" max="0.005" step="0.0001">
+              <div class="ends"><span>留住淡阴影</span><span>色块更干净</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="sec">
+        <div class="sec-head"><h2><svg class="i"><use href="#i-shield"/></svg>局部保护</h2><span class="pill" id="protectPill">未使用</span></div>
+        <button class="btn wide" id="brushBtn"><svg class="i"><use href="#i-brush"/></svg><span id="brushBtnText">保护笔刷</span><kbd id="brushKbd">B</kbd></button>
+        <div class="row2">
+          <button class="btn" id="lassoBtn" title="磁性套索（L）：沿轮廓自动吸附，圈住的地方保持原图；再按 L 完成，Esc 放弃"><svg class="i"><use href="#i-lasso"/></svg><span id="lassoBtnText">磁性套索</span><kbd>L</kbd></button>
+          <button class="btn" id="invertBtn" title="反选（I）：保护区和去噪区互换"><svg class="i"><use href="#i-invert"/></svg>反选<kbd>I</kbd></button>
+        </div>
+        <label class="hint" style="display:block;margin-top:10px"><input type="checkbox" id="enableSeg"> 启用 AI 人物选择（可选，首次下载约 176 MB）</label>
+        <button class="btn wide" id="autoSelBtn" style="margin-top:6px" title="自动选中人物（A）：AI 识别画面里的二次元人物，填进保护区（只给背景去噪）；再按 I 反选就只给人物去噪"><svg class="i"><use href="#i-spark"/></svg><span id="autoSelText">自动选中人物</span><kbd>A</kbd></button>
+        <p class="hint">腮红排线、细纹理、小字被抹掉了？涂上去就按比例混回原图，边缘自动柔化，马上生效。只想去背景：用磁性套索圈住人物；只想去人物：圈完再点反选。</p>
+        <div class="protect-sum" id="protectSum" hidden><span class="dot"></span><span id="protectSumText"></span><button class="linkbtn" id="clearMask">清除</button></div>
+      </section>
+
+      <section class="sec">
+        <div class="sec-head"><h2><svg class="i"><use href="#i-pen"/></svg>上色修补</h2><span class="pill" id="paintPill">未使用</span></div>
+        <button class="btn wide" id="paintBtn" title="上色笔（P）：直接用颜色补；按住 Alt 或 Ctrl 单击取色"><svg class="i"><use href="#i-pen"/></svg><span id="paintBtnText">上色笔</span><kbd>P</kbd></button>
+        <p class="hint">眼睛高光里的黑点、被抹掉的细线这类小地方，直接用颜色补上。按住 Alt 或 Ctrl 单击取色（对比视图里点左边就取原图的颜色），[ ] 调大小，Shift + [ ] 调软硬，数字键调不透明度。</p>
+        <div class="protect-sum" id="paintSum" hidden><span class="dot" id="paintSumDot"></span><span>已上色，盖在结果最上层</span><button class="linkbtn" id="clearPaint">清除</button></div>
+      </section>
+    </div>
+    <footer class="panel-foot">
+      <div class="foot-row">
+        <button class="btn primary" id="dlBtn" disabled><svg class="i"><use href="#i-down"/></svg>下载 PNG</button>
+        <button class="btn icon" id="revealBtn" title="在文件夹中显示" disabled><svg class="i"><use href="#i-folder"/></svg></button>
+      </div>
+      <div class="foot-note" id="footNote">浏览器 GPU 超分 · GPU 平滑 · 请下载保存</div>
+    </footer>
+  </aside>
+
+  <main class="work">
+    <div class="toolbar">
+      <div class="seg" id="viewSeg">
+        <button data-v="cmp" class="on" title="左右对比（1）">对比</button>
+        <button data-v="before" title="全屏原图（2；X 在原图 / 结果间切换）">原图</button>
+        <button data-v="after" title="全屏结果（3；X 在原图 / 结果间切换）">结果</button>
+      </div>
+      <div class="seg" id="baseSeg" hidden>
+        <span class="lbl">左边</span>
+        <button data-b="orig" class="on">原图</button>
+        <button data-b="den">未保护结果</button>
+      </div>
+      <span class="tb-hint" id="viewHint"></span>
+      <div class="zoom">
+        <button id="zOut" title="缩小">−</button>
+        <span class="pct num" id="zPct">—</span>
+        <button id="zIn" title="放大">+</button>
+        <button id="zFit" title="适合画面（F，双击）">适合</button>
+        <button id="z11" title="原始大小（0）">1:1</button>
+      </div>
+    </div>
+
+    <div class="stage" id="stage">
+      <div class="frame" id="frame" hidden></div>
+      <div class="layer" id="Lb"><img id="imgB" alt=""></div>
+      <div class="layer" id="La"><canvas id="cvA"></canvas><canvas id="cvP"></canvas></div>
+      <div class="layer" id="Lm"><canvas id="cvM"></canvas></div>
+      <span class="tag l" id="tagL" hidden>原图</span><span class="tag r" id="tagR" hidden>结果</span>
+      <div class="divider" id="div" hidden><div class="knob" id="knob" tabindex="0" role="slider" aria-label="对比分割线" aria-valuemin="0" aria-valuemax="100"><svg class="i"><use href="#i-lr"/></svg></div></div>
+
+      <div class="floatbar" id="brushbar" hidden>
+        <div class="seg"><button data-t="brush" class="on" title="保护笔刷（B）：涂到的地方混回原图"><svg class="i"><use href="#i-brush"/></svg>保护</button><button data-t="erase" id="eraseBtn" title="橡皮（E，或右键拖动）"><svg class="i"><use href="#i-eraser"/></svg>橡皮</button><button data-t="lasso" title="磁性套索（L）：沿轮廓自动吸附，圈住的地方保持原图；按住 Alt 闭合或右键闭合 = 减去"><svg class="i"><use href="#i-lasso"/></svg>套索</button><button data-t="paint" title="上色笔（P）：直接用颜色补；按住 Alt 或 Ctrl 单击取色"><svg class="i"><use href="#i-pen"/></svg>上色</button></div>
+        <span class="sep"></span>
+        <span class="fb-group" id="fbProtect">
+        <label class="fb-field" id="bSizeField" title="画笔大小，按原图像素（按住空格 + 滚轮，或 [ ]）">大小<input type="range" id="bSize" min="2" max="300" step="1"><output class="num" id="bSizeOut"></output></label>
+        <label class="fb-field" title="接下来这几笔混回原图的比例（颜色越深越强）；画过的地方再画会改成新比例；100% 就是完全不动">恢复原图<input type="range" id="bMix" min="0" max="100" step="5"><output class="num" id="bMixOut"></output></label>
+        <label class="fb-field" title="边缘渐变宽度；0 是硬边">柔边<input type="range" id="bFeather" min="0" max="150" step="2"><output class="num" id="bFeatherOut"></output></label>
+        </span>
+        <span class="fb-group" id="fbPaint" hidden>
+        <label class="fb-field" title="颜色：点开选色；按住 Alt 或 Ctrl 在画面上单击取色">颜色<span class="swatch" id="pSwatch"><input type="color" id="pColor"></span></label>
+        <label class="fb-field" title="笔刷大小，按原图像素（[ ]，或按住空格 + 滚轮）">大小<input type="range" id="pSize" min="1" max="200" step="1"><output class="num" id="pSizeOut"></output></label>
+        <label class="fb-field" id="pHardField" title="软硬：100% 是硬边，越小边缘越柔（Shift + [ ]）">硬度<input type="range" id="pHard" min="0" max="100" step="5"><output class="num" id="pHardOut"></output></label>
+        <label class="fb-field" title="不透明度：这一笔最多盖住多少（数字键 1–9、0 = 10%–100%）">不透明<input type="range" id="pOpac" min="1" max="100" step="1"><output class="num" id="pOpacOut"></output></label>
+        <button class="ib txt" id="pPixel" title="像素笔：不抗锯齿，按整像素落笔，适合 1–3 px 的点修">像素</button>
+        </span>
+        <span class="sep"></span>
+        <button class="ib" id="bUndo" title="撤销（Ctrl+Z）"><svg class="i"><use href="#i-undo"/></svg></button>
+        <button class="ib" id="bRedo" title="重做（Ctrl+Shift+Z）"><svg class="i"><use href="#i-redo"/></svg></button>
+        <button class="ib" id="bEye" title="涂完自动隐藏范围（点击改成一直显示）；按住 M 看全部涂抹"><svg class="i"><use id="bEyeIcon" href="#i-eye-auto"/></svg></button>
+        <button class="ib" id="bAuto" title="自动选中人物（A）：AI 识别人物，填进保护区"><svg class="i"><use href="#i-spark"/></svg></button>
+        <button class="ib" id="bInvert" title="反选（I）：保护区和去噪区互换（可撤销）"><svg class="i"><use href="#i-invert"/></svg></button>
+        <button class="ib" id="bClear" title="清除全部（可撤销）"><svg class="i"><use href="#i-trash"/></svg></button>
+        <span class="saved" id="bSaved"></span>
+        <button class="done-btn" id="bDone" title="完成涂抹（B 或 Esc）">完成</button>
+      </div>
+      <div class="tip" id="brushTip" hidden>涂到的地方混回原图 · 右键拖动擦除 · 按住空格：拖动画面 / 滚轮调笔刷大小 · 按住 M 看全部涂抹</div>
+
+      <div class="progress" id="prog" hidden><div class="bar"></div><div class="pcard"><span class="spin"></span><span id="progText">去噪中</span><span class="t num" id="progTime"></span></div></div>
+      <svg class="lasso-svg" id="lassoSvg" hidden aria-hidden="true"><path class="ant-b" id="lzB"/><path class="ant-w" id="lzW"/><path class="anc" id="lzA"/><circle id="lzStart" r="4.5"/></svg>
+      <div class="brush" id="brushCur" hidden></div>
+      <div class="loupe" id="pickLoupe" hidden></div>
+      <div class="size-tip num" id="sizeTip" hidden></div>
+
+      <div class="empty" id="empty">
+        <div class="empty-card">
+          <div class="empty-icon"><svg class="i"><use href="#i-image"/></svg></div>
+          <h3>拖入图片开始去噪</h3>
+          <p>单张最多 10 MB · 最高 1677 万像素（支持 4K），也能 Ctrl+V 粘贴。</p>
+          <button class="btn primary" id="emptyPick"><svg class="i"><use href="#i-plus"/></svg>选择图片</button>
+          <small>PNG · JPEG · WebP · BMP · GIF · TIFF · AVIF · 图片只在这台电脑上处理</small>
+        </div>
+      </div>
+    </div>
+
+    <div class="strip" id="strip">
+      <button class="sadd" id="stripAdd" title="添加图片（Ctrl+O）"><svg class="i"><use href="#i-plus"/></svg></button>
+      <div id="stripItems" style="display:flex;gap:12px;align-items:center"></div>
+      <span class="strip-note" id="stripNote"></span>
+    </div>
+  </main>
+</div>
+
+<div class="drop" id="dropOverlay" hidden><div>松开即可加入</div></div>
+<div class="toasts" id="toasts"></div>
+<input type="file" id="fileInput" accept="image/*,.tif,.tiff,.tga,.avif,.jfif" multiple hidden>
+
+<dialog id="helpDlg">
+  <div class="dlg">
+    <h3>结果是怎么来的</h3>
+    <div class="formula">
+      <div class="fcard"><b>原图</b>永远不会被改动</div><div class="op">＋</div>
+      <div class="fcard"><b>去噪</b>按强度重算；松手就重跑，只改 L0 约 0.3 秒</div><div class="op">＋</div>
+      <div class="fcard"><b>局部保护 · 上色</b>涂到的地方混回原图；上色直接盖在最上层</div><div class="op">＝</div>
+      <div class="fcard last"><b>结果</b>图片不上传，请下载保存结果</div>
+    </div>
+    <h4>快捷键</h4>
+    <div class="keys">
+      <div><span>保护笔刷 / 橡皮</span><span><kbd>B</kbd> <kbd>E</kbd></span></div>
+      <div><span>上色笔</span><span><kbd>P</kbd></span></div>
+      <div><span>磁性套索</span><span><kbd>L</kbd></span></div>
+      <div><span>结束当前工具</span><span>再按一次 · <kbd>Esc</kbd></span></div>
+      <div><span>取色（上色时）</span><span>按住 <kbd>Alt</kbd> / <kbd>Ctrl</kbd> 单击</span></div>
+      <div><span>画笔大小</span><span><kbd>[</kbd> <kbd>]</kbd> · <kbd>空格</kbd>+滚轮</span></div>
+      <div><span>笔刷软硬（上色时）</span><span><kbd>Shift</kbd>+<kbd>[</kbd> <kbd>]</kbd></span></div>
+      <div><span>不透明度（上色时）</span><span><kbd>1</kbd>…<kbd>9</kbd> <kbd>0</kbd>，连按两位如 45%</span></div>
+      <div><span>从上一笔画直线</span><span><kbd>Shift</kbd>+单击</span></div>
+      <div><span>擦除当前这一层</span><span><kbd>E</kbd> · 右键拖动</span></div>
+      <div><span>对比 / 原图 / 结果</span><span><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></span></div>
+      <div><span>全屏原图 ↔ 结果</span><span><kbd>X</kbd></span></div>
+      <div><span>按住暂时看原图</span><span><kbd>Z</kbd></span></div>
+      <div><span>按住看全部保护区</span><span><kbd>M</kbd></span></div>
+      <div><span>缩放</span><span>滚轮 · <kbd>Ctrl</kbd>+<kbd>+</kbd> <kbd>-</kbd></span></div>
+      <div><span>适合画面 / 100%</span><span><kbd>F</kbd> <kbd>0</kbd> · <kbd>Ctrl</kbd>+<kbd>0</kbd> <kbd>1</kbd></span></div>
+      <div><span>拖动画面</span><span>按住 <kbd>空格</kbd> · 中键</span></div>
+      <div><span>上一张 / 下一张</span><span><kbd>←</kbd> <kbd>→</kbd></span></div>
+      <div><span>反选保护区</span><span><kbd>I</kbd> · <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>I</kbd></span></div>
+      <div><span>套索闭合 / 删上个锚点</span><span><kbd>↵</kbd> <kbd>⌫</kbd></span></div>
+      <div><span>撤销 / 重做</span><span><kbd>Ctrl</kbd>+<kbd>Z</kbd> · <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> / <kbd>Y</kbd></span></div>
+      <div><span>下载 / 重新去噪</span><span><kbd>Ctrl</kbd>+<kbd>S</kbd> · <kbd>Ctrl</kbd>+<kbd>↵</kbd></span></div>
+      <div><span>添加 / 粘贴图片</span><span><kbd>Ctrl</kbd>+<kbd>O</kbd> · <kbd>Ctrl</kbd>+<kbd>V</kbd></span></div>
+    </div>
+    <div class="dlg-foot">
+      <span class="note">方法：缩小到预缩比例 → Real-ESRGAN 动漫超分放回原尺寸 → L0 平滑。<a href="https://github.com/CXP-2024/gpt-anime-denoise" target="_blank" rel="noopener">GitHub</a></span>
+      <button class="btn primary" id="helpClose">知道了</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="quitDlg">
+  <div class="dlg" style="width:380px">
+    <h3>结束去噪工具？</h3>
+    <p style="margin:0;color:var(--muted);font-size:13px">请先下载结果，关闭页面后未下载的图片将丢失。</p>
+    <div class="dlg-foot"><span class="note"></span><button class="btn" id="quitNo">取消</button><button class="btn primary" id="quitYes">结束</button></div>
+  </div>
+</dialog>
+
+<script type="module" src="/src/ui.js"></script>
+</body>
+</html>

@@ -1,0 +1,1 @@
+{"name":"anime-denoise-browser","private":true,"type":"module","scripts":{"dev":"vite --host 127.0.0.1","build":"vite build","test":"node --test"},"dependencies":{"fft.js":"4.0.4","onnxruntime-web":"1.24.3"},"devDependencies":{"vite":"6.4.1"}}
