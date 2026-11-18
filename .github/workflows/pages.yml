@@ -30,7 +30,7 @@ jobs:
         uses: actions/configure-pages@v5
       - name: Fetch and verify model files
         run: |
-          gh release download models-v1 --pattern '*.onnx' --dir public/models
+          gh release download models-v1 --pattern esrgan.onnx --dir public/models
           sha256sum -c models.sha256
         env:
           GH_TOKEN: ${{ github.token }}
