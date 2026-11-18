@@ -1,7 +1,7 @@
-export const MAX_FILE_BYTES = 10 * 1024 * 1024;
+export const MAX_FILE_BYTES = 1024 ** 3;
 export const MAX_PIXELS = 16_777_216;
 export function validateFile(size) {
-  if (size > MAX_FILE_BYTES) throw Error('图片超过 10 MB，请压缩文件后再试');
+  if (size > MAX_FILE_BYTES) throw Error('源文件超过 1 GiB，请压缩文件后再试');
 }
 export function validateDimensions(w, h) {
   if (Math.min(w, h) < 16 || Math.max(w, h) > 16384 || w * h > MAX_PIXELS)
